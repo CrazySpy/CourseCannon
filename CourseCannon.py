@@ -3,6 +3,9 @@ import http.cookiejar;
 import json;
 import re;
 
+profileID = 55;
+
+
 class Header:
     header = {
             'Connection': 'Keep-Alive',
@@ -57,8 +60,8 @@ class Course:
             self.__no = courseDetail['no'];
             self.__name = courseDetail['name'];
             self.__code = courseDetail['code'];
-            self.__teacher = courseDetail['teacher'];
-            self.__campusName = courseDetail['courseName'];
+            self.__teacher = courseDetail['teachers'];
+            self.__campusName = courseDetail['campusName'];
             self.__courseTypeName = courseDetail['courseTypeName'];
         except:
             return;
@@ -85,7 +88,8 @@ class SSO:
     account = None;
     password = None;
 
-    SSOURL = 'http://sso.lixin.edu.cn/authorize.php?client_id=ufsso_supwisdom_jw&redirect_uri=http%3A%2F%2Fnewjw.lixin.edu.cn%2Fsso%2Findex&state=1q2w3e&response_type=code';
+    #SSOURL = 'http://sso.lixin.edu.cn/authorize.php?client_id=ufsso_supwisdom_jw&redirect_uri=http%3A%2F%2Fnewjw.lixin.edu.cn%2Fsso%2Findex&state=1q2w3e&response_type=code';
+    SSOURL = 'http://newjw.lixin.edu.cn/sso/login';
     ResponseHeader = None;
     ResponseContent = None;
     LoginOpener = None;
@@ -124,7 +128,7 @@ class Login:
     opener = None;
 
     setURL = 'http://newjw.lixin.edu.cn/webapp/std/edu/lesson/std-elect-course!innerIndex.action';
-    setURL2 = 'http://newjw.lixin.edu.cn/webapp/std/edu/lesson/std-elect-course!defaultPage.action?electionProfile.id=52';
+    setURL2 = 'http://newjw.lixin.edu.cn/webapp/std/edu/lesson/std-elect-course!defaultPage.action?electionProfile.id=' + str(profileID);
 
 
     def __init__(self,account,password):
@@ -149,9 +153,8 @@ class Login:
 class Select:
     opener = None;
 
-    selectURL = 'http://newjw.lixin.edu.cn/webapp/std/edu/lesson/std-elect-course!batchOperator.action?profileId=52';
-    courseListURL = 'http://newjw.lixin.edu.cn/webapp/std/edu/lesson/std-elect-course!data.action?profileId=52';
-
+    selectURL = 'http://newjw.lixin.edu.cn/webapp/std/edu/lesson/std-elect-course!batchOperator.action?profileId=' + str(profileID);
+    courseListURL = 'http://newjw.lixin.edu.cn/webapp/std/edu/lesson/std-elect-course!data.action?profileId=' + str(profileID);
     courseList = {};
 
     def __init__(self,login):
