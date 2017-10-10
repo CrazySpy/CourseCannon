@@ -5,6 +5,9 @@ import re;
 
 profileID = 55;
 
+#如果知道课程的数据库id可以在这里填进去，否则保持none
+courseID = None;
+
 
 class Header:
     header = {
@@ -232,11 +235,21 @@ if __name__ == '__main__':
     login = Login(username,password);
     login.Login();
     select = Select(login);
-    courseCode = input('请输入所要的课程的课程代码:');
-    course = select.FineCourseByCode(courseCode);
-    if not course:
-        print('课程代码不存在或不可选\n');
-        exit();
+    
+    course = None;
+    if courseID == None:
+        courseCode = input('请输入所要的课程的课程代码:');
+        course = select.FineCourseByCode(courseCode);
+        if not course:
+            print('课程代码不存在或不可选\n');
+            exit();
+    else:
+        course = Course({
+            'id' : courseID,
+            'teachers' : '未知',
+            'courseTypeName' : '未知',
+            'campusName' : '未知'
+            });
     print('正在抢以下课程：\n');
     print('课程名：%s\n' % course.GetName());
     print('任课老师：%s\n' % course.GetTeacher());
