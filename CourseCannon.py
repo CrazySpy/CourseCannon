@@ -2,11 +2,9 @@ import urllib;
 import http.cookiejar;
 import json;
 import re;
+import threading;
 
-profileID = 55;
-
-#如果知道课程的数据库id可以在这里填进去，否则保持none
-courseID = None;
+profileID = 50;
 
 
 class Header:
@@ -153,16 +151,48 @@ class Login:
     def GetLoginedOpener(self):
         return self.opener;
 
-class Select:
+    def Relogin(self):
+        self.Login();
+
+    '''
+    class SessionExpire(Exception):
+        message = None;
+        def __init__(self):
+            self.message = 'Session has been expired.';
+    '''
+    
+class Select(threading.Thread):
     opener = None;
 
     selectURL = 'http://newjw.lixin.edu.cn/webapp/std/edu/lesson/std-elect-course!batchOperator.action?profileId=' + str(profileID);
     courseListURL = 'http://newjw.lixin.edu.cn/webapp/std/edu/lesson/std-elect-course!data.action?profileId=' + str(profileID);
     courseList = {};
 
-    def __init__(self,login):
+    __courseCode = None;
+    def __init__(self,login,courseCode):
+        threading.Thread.__init__(self);
+        self.__courseCode = courseCode;
         self.opener = login.GetLoginedOpener();
-        self.GetCourseList();
+        self.__GetCourseList();
+        self.__flag = threading.Event();     # 用于暂停线程的标识
+        self.__flag.set();       # 设置为True
+        self.__running = threading.Event();      # 用于停止线程的标识
+        self.__running.set();      # 将running设置为True
+
+    def run(self):
+        while self.__running.isSet():
+            self.__flag.wait();
+            self.__GetCourse();
+            
+    def pause(self):
+        self.__flag.clear();
+    
+    def resume(self):
+        self.__flag.set();
+
+    def stop(self):
+        self.__flag.set();
+        self.__running.clear();
 
     def __Parse2JSONArray(self,expr):
         expr = expr.replace('{','{"').replace(':','":').replace(',',',"').replace('\'','"').replace('},"{"','},{"');
@@ -180,7 +210,7 @@ class Select:
  
         return "".join(expr2);
 
-    def GetCourseList(self):
+    def __GetCourseList(self):
         op = self.opener.open(self.courseListURL);
         data = op.read().decode();
         start = data.find('=') + 2;
@@ -192,12 +222,12 @@ class Select:
             self.courseList[course['code']] = newCourse;
 
     #通过课程代码搜索课程数据
-    def FineCourseByCode(self,code):
+    def __FindCourseByCode(self,code):
         if code in self.courseList:
             return self.courseList[code];
         return False;
 
-    def SelectCourse(self,course):
+    def __PostCourse(self,course):
         postPara = {
                 'operator0' : str(course.GetID()) + ':true:0'
                 };
@@ -220,49 +250,87 @@ class Select:
             findConflict = re.compile('课程冲突').findall(returnData);
             if findConflict:
                 return 501;
+            
+            findExpire = re.compile('expired').findall(returnData);
+            if findExpire:
+                return 502;
 
             return 1000;
+        
+    def __GetCourse(self):
+        course = self.__FindCourseByCode(self.__courseCode);
+        if not course:
+            print('课程代码不存在或不可选\n');
+            return;
+        print('正在抢以下课程：\n课程名：%s\n任课老师：%s\n开课校区：%s\n课程类型：%s\n' % (course.GetName(),course.GetTeacher(),course.GetCampusName(),course.GetCourseTypeName()));
+        endCode = -1;
+        while(endCode < 0):
+            try:
+                endCode = self.__PostCourse(course);
+            except urllib.error.HTTPError:
+                #网络错误重新
+                pass;
+        
+        if endCode == 200:
+            print('%s抢课成功\n' % self.__courseCode);
+        elif endCode == 500:
+            print('%s操作失败\n' % self.__courseCode);
+        elif endCode == 501:
+            print('%s选课冲突\n' % self.__courseCode);
+        elif endCode == 502:
+            print('%sSession超时,正在重新登录.\n' % self.__courseCode);
+            login.Relogin();
+            self.opener = login.GetLoginedOpener();
+        else:
+            print('未知问题:%d\n' % (self.__courseCode,endCode));
 
-
+def doLogin(username,password):
+    while(True):
+        try:
+            login = Login(username,password);
+            login.Login();
+            return login;
+        except URLError:
+            print("登录超时，正在重试\n");
 
 if __name__ == '__main__':
     print('本程序采用GPLv3协议，侵权者请注意您将负法律责任。不允许将本程序及其衍生程序进行任何商业化行为。\n');
     print('上海立信会计金融学院CrazySpy制作 2017\n');
 
-    print('请务必输入正确的用户名和密码，本程序未完成登录错误判断部分。');
-    username = input('请输入sso用户名:');
-    password = input('请输入sso密码:');
-    login = Login(username,password);
-    login.Login();
-    select = Select(login);
+    print('请务必输入正确的用户名和密码，本程序未完成登录错误判断部分。\n');
+    username = None;
+    password = None;
+    if username == None or password == None:
+        username = input('请输入sso用户名:\n');
+        password = input('请输入sso密码:\n');
     
-    course = None;
-    if courseID == None:
-        courseCode = input('请输入所要的课程的课程代码:');
-        course = select.FineCourseByCode(courseCode);
-        if not course:
-            print('课程代码不存在或不可选\n');
-            exit();
-    else:
-        course = Course({
-            'id' : courseID,
-            'teachers' : '未知',
-            'courseTypeName' : '未知',
-            'campusName' : '未知'
-            });
-    print('正在抢以下课程：\n');
-    print('课程名：%s\n' % course.GetName());
-    print('任课老师：%s\n' % course.GetTeacher());
-    print('开课校区：%s\n' % course.GetCampusName());
-    print('课程类型：%s\n' % course.GetCourseTypeName());
+    login = doLogin(username,password);
+      
+    workingThread = [];
+    courseCodes = [];
     
-    endCode = select.SelectCourse(course);
+    for code in courseCodes:
+        s = Select(login,code);
+        s.start();
+        workingThread.append(s);
+    while(True):
+        courseCode = input('请输入所要的课程的课程代码:\n');
+        if(len(courseCode) == 0):
+            continue;
+        try:
+            courseCodes.append(courseCode);
+            s = Select(login,courseCode);
+            s.start();
+            workingThread.append(s);
+        except (http.client.RemoteDisconnected,Login.SessionExpire) as e:
+            print("发生错误:%s,即将重新登录并选课\n",e.message);
+            for thread in workingThread:
+                thread.stop();
+            workingThread.clear();
+            login = doLogin(username,password);
+            for code in courseCodes:
+                s = Select(login,code);
+                s.start();
+                workingThread.append(s);
 
-    if endCode == 200:
-        print('抢课成功');
-    elif endCode == 500:
-        print('操作失败');
-    elif endCode == 501:
-        print('选课冲突');
-    else:
-        print('未知问题');
+            
