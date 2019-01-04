@@ -15,5 +15,6 @@
 	2.2 Linux/Unix/MacOS下
 	    使用相应的管理指令（yum/brew/apt-get）下载Python3
 	    bash下执行python3 /DIR TO PLUGIN/CourseCannon.py
+	2.3 在服务器挂机状态下时可以使用命令参数，详情通过-h参数查看
 
 	其它疑问可以提交issue或者邮箱咨询
