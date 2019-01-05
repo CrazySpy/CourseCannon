@@ -9,6 +9,11 @@ import logging
 import getpass
 import socket
 
+logger = logging.getLogger()    # initialize logging class
+logger.setLevel(logging.DEBUG)  # default log level
+logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+
 profileID = 0
 
 socket.setdefaulttimeout(2)
@@ -162,14 +167,12 @@ class Login:
     def Relogin(self):
         self.Login()
 
-    '''
-    class SessionExpire(Exception):
-        message = None
-        def __init__(self):
-            self.message = 'Session has been expired.'
-    '''
-    
+
+
 class Select(threading.Thread):
+    '''
+    noexcept类
+    '''
     opener = None
 
     replaceList = ['思考:信息'] # 因为课程信息使用的不是json，而是一个js对象数组，我使用了Parse2JsonStr的函数，但是有的课程中有“:”，这样导致这个函数不能正确工作，因此需要手动将这些课程的敏感名称替换掉
@@ -195,7 +198,10 @@ class Select(threading.Thread):
     def run(self):
         while self.__running.isSet():
             self.__flag.wait()
-            self.__GetCourse()
+            try:
+                self.__GetCourse()
+            except Exception as e:
+                continue
             
     def pause(self):
         self.__flag.clear()
@@ -259,53 +265,47 @@ class Select(threading.Thread):
             if findMax:
                 continue
 
-            findError = re.compile('操作失败').findall(returnData)
-            if findError:
-                return 500
             findSuccess = re.compile('选课成功').findall(returnData)
             if findSuccess:
-                return 200
+                return (True, '')
 
-            findConflict = re.compile('课程冲突').findall(returnData)
-            if findConflict:
-                return 501
-            
-            findExpire = re.compile('expired').findall(returnData)
-            if findExpire:
-                return 502
+            brTag = returnData.find('</br>') #</br>标签作为返回信息的一个标志
+            for i in range(brTag, 0, -1):
+                if returnData[i] == '\t':
+                    error = returnData[i + 1:brTag]
+                    break
 
-            return 1000
-        
+            return (False, error)
+
+
     def __GetCourse(self):
         course = self.__FindCourseByCode(self.__courseCode)
         if not course:
             logging.warning('课程代码不存在或不可选')
-            #print('课程代码不存在或不可选\n')
             return
         print('正在抢以下课程：\n课程名：%s\n任课老师：%s\n开课校区：%s\n课程类型：%s\n' % (course.GetName(),course.GetTeacher(),course.GetCampusName(),course.GetCourseTypeName()))
-        endCode = -1
-        while(endCode < 0):
-            try:
-                endCode = self.__PostCourse(course)
-            except urllib.error.HTTPError:
-                #网络错误重新
-                pass
         
-        if endCode == 200:
-            logging.info('%s抢课成功\n' % self.__courseCode)
-            self.stop()
-        elif endCode == 500:
-            logging.error('%s操作失败\n' % self.__courseCode)
-            self.stop()
-        elif endCode == 501:
-            logging.warning('%s选课冲突\n' % self.__courseCode)
-            self.stop()
-        elif endCode == 502:
-            logging.error('%sSession超时,正在重新登录.\n' % self.__courseCode)
-            login.Relogin()
-            self.opener = login.GetLoginedOpener()
-        else:
-            logging.error('未知问题:%d\n' % (endCode))
+        selectSuccess = False
+        while not selectSuccess:
+            try:
+                selectSuccess, error = self.__PostCourse(course)
+            except Exception as e:
+                #网络错误重新
+                continue
+
+            if selectSuccess:
+                logging.info('%s抢课成功' % self.__courseCode)
+                self.stop()
+            else:
+                logging.error('对于%s,%s' % (self.__courseCode, error))
+                if re.compile('expired').findall(error):
+                    login.Relogin()
+                    self.opener = login.GetLoginedOpener()
+                else:
+                    logging.warning('对于%s的抢课已经停止' % (self.__courseCode))
+                    self.stop()
+                    break
+
 
 def doLogin(username,password):
     while(True):
@@ -315,15 +315,6 @@ def doLogin(username,password):
             return login
         except Exception as e:
             logging.error(e);
-        """
-        except (urllib.error.HTTPError) as e:
-            print('发生错误\n%s\n正在重试...\n' % e.reason)
-        except (http.client.RemoteDisconnected) as e:
-            print('服务器主动断开连接\n正在重试...\n')
-        except (http.client.ConnectionResetError) as e:
-            print('服务器重置了连接\n正在重试...\n')
-        """
-
 
 
 if __name__ == '__main__':
@@ -366,28 +357,19 @@ if __name__ == '__main__':
     
     login = doLogin(username,password)
       
-    workingThread = [] #当前抢课进程池
+    workingThread = [] #当前抢课线程池
     
-    try:
-        for code in courseCodes:
-            s = Select(login,code)
-            s.start()
-            workingThread.append(s)
-        while(True):
-            courseCode = input('请输入所要的课程的课程代码:\n')
-            if(len(courseCode) == 0):
-                continue
-            courseCodes.append(courseCode)
-            s = Select(login,courseCode)
-            s.start()
-            workingThread.append(s)
-    except Exception as e:
-        logging.error("%s，即将重新登录并选课，为保证稳定本进程不接受其它抢课请求。\n",e)
-        for thread in workingThread:
-            thread.stop()
-        workingThread.clear()
-        login = doLogin(username,password)
-        for code in courseCodes:
-            s = Select(login,code)
-            s.start()
-            workingThread.append(s)
+    
+    for code in courseCodes:
+        s = Select(login,code)
+        s.start()
+        workingThread.append(s)
+        
+    while 1:
+        courseCode = input('请输入所要的课程的课程代码:\n')
+        if(len(courseCode) == 0): continue
+        courseCodes.append(courseCode)
+        s = Select(login,courseCode)
+        s.start()
+        workingThread.append(s)
+
