@@ -16,9 +16,6 @@ logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(le
 
 profileID = 0
 
-socket.setdefaulttimeout(2)
-
-
 class Header:
     header = {
             'Connection': 'Keep-Alive',
@@ -55,8 +52,8 @@ class Opener:
     def GetOpener(self):
         return self.opener
 
-    def open(self,url,para = None):
-        return self.opener.open(url,para)
+    def open(self,url,para = None, timeout=socket.getdefaulttimeout()):
+        return self.opener.open(url,para, timeout)
 
 class Course:
     __id = None
@@ -81,6 +78,9 @@ class Course:
 
     def GetID(self):
         return self.__id
+
+    def GetNo(self):
+        return self.__no
 
     def GetName(self):
         return self.__name
@@ -182,12 +182,15 @@ class Select(threading.Thread):
     courseList = {}
 
     __courseCode = None
-    def __init__(self,login,courseCode):
+    def __init__(self,login,courseDetail):
         self.selectURL += str(profileID)
         self.courseListURL += str(profileID)
 
         threading.Thread.__init__(self)
-        self.__courseCode = courseCode
+        
+        self.__courseCode = courseDetail[0]
+        self.__courseNo = courseDetail[1]
+
         self.opener = login.GetLoginedOpener()
         self.__GetCourseList()
         self.__flag = threading.Event()     # 用于暂停线程的标识
@@ -240,12 +243,20 @@ class Select(threading.Thread):
         courses = json.loads(parsedJson)
         for course in courses:
             newCourse = Course(course)
-            self.courseList[course['code']] = newCourse
+            if course['code'] not in self.courseList:
+                self.courseList[course['code']] = []
+            self.courseList[course['code']].append(newCourse)
 
-    #通过课程代码搜索课程数据
-    def __FindCourseByCode(self,code):
+    #通过课程代码搜索课程数据，no在当一个代码多个课程是起到去重
+    def __FindCourseByCode(self,code, no = None):
         if code in self.courseList:
-            return self.courseList[code]
+            courses = self.courseList[code]
+            if no is not None:
+                for course in courses:
+                    if course.GetNo() == no:
+                        return course
+            else:
+                return courses[0]
         return False
 
     def __PostCourse(self,course):
@@ -255,7 +266,7 @@ class Select(threading.Thread):
         postData = urllib.parse.urlencode(postPara).encode()
         while 1:
             try:
-                op = self.opener.open(self.selectURL,postData)
+                op = self.opener.open(self.selectURL, postData, 2)
             except Exception as e:
                 continue
             
@@ -279,7 +290,7 @@ class Select(threading.Thread):
 
 
     def __GetCourse(self):
-        course = self.__FindCourseByCode(self.__courseCode)
+        course = self.__FindCourseByCode(self.__courseCode, self.__courseNo)
         if not course:
             logging.warning('课程代码不存在或不可选')
             return
@@ -316,6 +327,16 @@ def doLogin(username,password):
         except Exception as e:
             logging.error(e);
 
+def splitCodeAndNo(text):
+    detail = text.split('.')
+    
+    code = detail[0]
+    if len(detail) > 1:
+        no = detail[1]
+    else:
+        no = None
+        
+    return code, no
 
 if __name__ == '__main__':
     username = None
@@ -339,7 +360,7 @@ if __name__ == '__main__':
             print('{:15s}: {}'. format('-u username', '输入用户名(另--username=x)'))
             print('{:15s}: {}'. format('-p password', '输入密码(另--password=x)'))
             print('{:15s}: {}'. format('-i profileId', '输入 profile id. (另--pid=x)'))
-            print('{:15s}: {}'. format('-c courses', '输入想要抢的课程，以123,34,555这种格式 (另--course=x)'))
+            print('{:15s}: {}'. format('-c courses', '输入想要抢的课程代码，以123,34,555这种格式，如果同一课程代码下有多个课程，使用“.”再写上课程序号 (另--course=x)'))
             sys.exit()
 
     print('本程序采用GPLv3协议，侵权者请注意您将负法律责任。不允许将本程序及其衍生程序进行任何商业化行为。\n')
@@ -355,13 +376,19 @@ if __name__ == '__main__':
     if profileID == 0:
         profileID = int(input('请输入profileID:'))
     
-    login = doLogin(username,password)
-      
+    while 1:
+        try:
+            login = doLogin(username,password)
+            break
+        except Exception as e:
+            logging.error('登录时网络出错，正在重试...')
+            continue
+
     workingThread = [] #当前抢课线程池
     
     
     for code in courseCodes:
-        s = Select(login,code)
+        s = Select(login,splitCodeAndNo(code))
         s.start()
         workingThread.append(s)
         
@@ -369,7 +396,7 @@ if __name__ == '__main__':
         courseCode = input('请输入所要的课程的课程代码:\n')
         if(len(courseCode) == 0): continue
         courseCodes.append(courseCode)
-        s = Select(login,courseCode)
+        s = Select(login,splitCodeAndNo(courseCode))
         s.start()
         workingThread.append(s)
 
